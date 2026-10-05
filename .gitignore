@@ -1,0 +1,32 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.venv/
+venv/
+
+# Environment files
+.env
+.env.*
+!.env.example
+
+# Terraform
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
+tfplan
+crash.log
+crash.*.log
+
+# MLflow
+mlruns/
+mlartifacts/
+
+# Prefect
+.prefect/
+
+# IDE / OS
+.vscode/
+.idea/
+.DS_Store

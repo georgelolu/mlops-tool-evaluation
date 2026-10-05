@@ -1,0 +1,14 @@
+mlflow
+scikit-learn
+pandas
+numpy
+boto3
+psycopg2-binary
+fastapi
+uvicorn
+prefect
+feast
+evidently
+pytest
+ruff
+requests
