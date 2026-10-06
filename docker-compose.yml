@@ -1,5 +1,4 @@
 services:
-
   postgres:
     image: postgres:16
     container_name: mlops-postgres
@@ -28,6 +27,8 @@ services:
       --host 0.0.0.0
       --port 5000
       --workers 1
+      --allowed-hosts 54.89.231.26:5000,localhost:5000
+      --cors-allowed-origins http://54.89.231.26:5000,http://localhost:5000
       --backend-store-uri postgresql://mlflow:mlflowpassword@postgres:5432/mlflow
       --artifacts-destination s3://${MLFLOW_BUCKET}
     restart: unless-stopped
