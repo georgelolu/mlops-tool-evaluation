@@ -12,7 +12,9 @@ services:
     restart: unless-stopped
 
   mlflow:
-    image: ghcr.io/mlflow/mlflow:latest
+    build:
+      context: .
+      dockerfile: Dockerfile.mlflow
     container_name: mlflow
     depends_on:
       - postgres
