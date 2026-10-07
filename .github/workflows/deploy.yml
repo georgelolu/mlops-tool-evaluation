@@ -41,6 +41,7 @@ jobs:
             --document-name "AWS-RunShellScript" \
             --parameters "commands=[
               \"set -e\",
+              \"echo 'Preparing application repository...'\",
               \"if [ ! -d '${APP_DIR}/.git' ]; then\",
               \"  echo 'Application repository not found. Cloning repository...'\",
               \"  sudo mkdir -p '${APP_DIR}'\",
@@ -48,8 +49,11 @@ jobs:
               \"  rm -rf '${APP_DIR}'\",
               \"  git clone '${REPOSITORY_URL}' '${APP_DIR}'\",
               \"else\",
-              \"  echo 'Application repository found. Updating repository...'\",
+              \"  echo 'Application repository found.'\",
               \"  cd '${APP_DIR}'\",
+              \"  git remote set-url origin '${REPOSITORY_URL}'\",
+              \"  echo 'Git remote configured as:'\",
+              \"  git remote -v\",
               \"  git fetch origin main\",
               \"  git reset --hard origin/main\",
               \"fi\",
