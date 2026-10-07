@@ -1,5 +1,4 @@
 from prefect import flow, task
-
 from train import train_model
 
 

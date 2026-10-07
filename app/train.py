@@ -7,7 +7,6 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import accuracy_score, f1_score
 from sklearn.model_selection import train_test_split
 
-
 TRACKING_URI = os.getenv(
     "MLFLOW_TRACKING_URI",
     "http://localhost:5000",
@@ -45,20 +44,46 @@ def train_model():
 
         predictions = model.predict(X_test)
 
-        accuracy = accuracy_score(y_test, predictions)
+        accuracy = accuracy_score(
+            y_test,
+            predictions,
+        )
+
         f1 = f1_score(
             y_test,
             predictions,
             average="weighted",
         )
 
-        mlflow.log_param("model_type", "LogisticRegression")
-        mlflow.log_param("max_iter", max_iter)
-        mlflow.log_param("test_size", 0.2)
-        mlflow.log_param("random_state", 42)
+        mlflow.log_param(
+            "model_type",
+            "LogisticRegression",
+        )
 
-        mlflow.log_metric("accuracy", accuracy)
-        mlflow.log_metric("f1_score", f1)
+        mlflow.log_param(
+            "max_iter",
+            max_iter,
+        )
+
+        mlflow.log_param(
+            "test_size",
+            0.2,
+        )
+
+        mlflow.log_param(
+            "random_state",
+            42,
+        )
+
+        mlflow.log_metric(
+            "accuracy",
+            accuracy,
+        )
+
+        mlflow.log_metric(
+            "f1_score",
+            f1,
+        )
 
         mlflow.sklearn.log_model(
             model,

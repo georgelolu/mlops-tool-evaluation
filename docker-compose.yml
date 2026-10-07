@@ -47,6 +47,23 @@ services:
       - prefect_data:/root/.prefect
     restart: unless-stopped
 
+  trainer:
+    build:
+      context: .
+      dockerfile: Dockerfile.trainer
+    container_name: mlops-trainer
+    depends_on:
+      - mlflow
+      - prefect
+    environment:
+      MLFLOW_TRACKING_URI: http://mlflow:5000
+      MLFLOW_EXPERIMENT_NAME: mlops-tool-evaluation
+      PREFECT_API_URL: http://prefect:4200/api
+      AWS_DEFAULT_REGION: ${AWS_DEFAULT_REGION:-us-east-1}
+      AWS_REGION: ${AWS_DEFAULT_REGION:-us-east-1}
+    command: python app/flow.py
+    restart: "no"
+
 volumes:
   postgres_data:
   prefect_data:
