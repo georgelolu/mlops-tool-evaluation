@@ -27,8 +27,8 @@ services:
       --host 0.0.0.0
       --port 5000
       --workers 1
-      --allowed-hosts 54.89.231.26:5000,localhost:5000
-      --cors-allowed-origins http://54.89.231.26:5000,http://localhost:5000
+      --allowed-hosts ${MLFLOW_ALLOWED_HOSTS:-localhost:5000}
+      --cors-allowed-origins ${MLFLOW_CORS_ORIGINS:-http://localhost:5000}
       --backend-store-uri postgresql://mlflow:mlflowpassword@postgres:5432/mlflow
       --artifacts-destination s3://${MLFLOW_BUCKET}
     restart: unless-stopped
@@ -42,7 +42,7 @@ services:
     environment:
       PREFECT_SERVER_API_HOST: 0.0.0.0
       PREFECT_SERVER_API_PORT: 4200
-      PREFECT_UI_API_URL: http://localhost:4200/api
+      PREFECT_UI_API_URL: ${PREFECT_UI_API_URL:-http://localhost:4200/api}
     volumes:
       - prefect_data:/root/.prefect
     restart: unless-stopped
