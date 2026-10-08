@@ -8,9 +8,11 @@ on:
 
 permissions:
   contents: read
+  id-token: write
 
 env:
   AWS_REGION: us-east-1
+  AWS_ROLE_ARN: arn:aws:iam::361103952701:role/mlops-tools-evaluation-github-actions-role
   EC2_INSTANCE_ID: i-0e554922b7d27135d
   APP_DIR: /opt/mlops/application
   REPOSITORY_URL: https://github.com/georgelolu/mlops-tool-evaluation.git
@@ -28,8 +30,12 @@ jobs:
         uses: aws-actions/configure-aws-credentials@v4
         with:
           aws-region: ${{ env.AWS_REGION }}
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          role-to-assume: ${{ env.AWS_ROLE_ARN }}
+          role-session-name: GitHubActions-MLOpsDeployment
+
+      - name: Verify AWS identity
+        run: |
+          aws sts get-caller-identity
 
       - name: Deploy application through SSM
         run: |

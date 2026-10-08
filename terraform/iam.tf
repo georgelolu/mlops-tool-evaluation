@@ -17,6 +17,7 @@ resource "aws_iam_role" "ec2" {
     ]
   })
 }
+
 resource "aws_iam_role_policy" "s3" {
   name = "${var.project_name}-s3"
   role = aws_iam_role.ec2.id
