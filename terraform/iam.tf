@@ -146,7 +146,7 @@ data "aws_iam_policy_document" "github_actions_assume_role" {
       variable = "token.actions.githubusercontent.com:sub"
 
       values = [
-        "repo:georgelolu/mlops-tool-evaluation:ref:refs/heads/main"
+        "repo:georgelolu@118357349/mlops-tool-evaluation@1405477967:ref:refs/heads/main"
       ]
     }
   }
