@@ -1,3 +1,4 @@
+```yaml
 name: MLOps CD
 
 on:
@@ -16,6 +17,7 @@ env:
   EC2_INSTANCE_ID: i-0e554922b7d27135d
   APP_DIR: /opt/mlops/application
   REPOSITORY_URL: https://github.com/georgelolu/mlops-tool-evaluation.git
+  S3_BUCKET: mlops-tools-evaluation-d7e28c26c4424a6727c795bd2d
 
 jobs:
   deploy:
@@ -37,10 +39,31 @@ jobs:
         run: |
           aws sts get-caller-identity
 
+      - name: Get current EC2 public IP
+        id: ec2_ip
+        shell: bash
+        run: |
+          set -e
+
+          EC2_PUBLIC_IP=$(aws ec2 describe-instances \
+            --instance-ids "${EC2_INSTANCE_ID}" \
+            --query "Reservations[0].Instances[0].PublicIpAddress" \
+            --output text)
+
+          if [ -z "${EC2_PUBLIC_IP}" ] || [ "${EC2_PUBLIC_IP}" = "None" ]; then
+            echo "ERROR: Could not determine EC2 public IP."
+            exit 1
+          fi
+
+          echo "EC2 public IP: ${EC2_PUBLIC_IP}"
+          echo "public_ip=${EC2_PUBLIC_IP}" >> "${GITHUB_OUTPUT}"
+
       - name: Deploy application through SSM
         shell: bash
         run: |
           set -e
+
+          EC2_PUBLIC_IP="${{ steps.ec2_ip.outputs.public_ip }}"
 
           COMMAND_ID=$(aws ssm send-command \
             --instance-ids "${EC2_INSTANCE_ID}" \
@@ -52,6 +75,17 @@ jobs:
               \"cd '${APP_DIR}'\",
               \"echo 'Application commit:'\",
               \"git rev-parse --short HEAD\",
+              \"echo 'Configuring deployment environment...'\",
+              \"cat > .env <<'EOF'\",
+              \"MLFLOW_BUCKET=${S3_BUCKET}\",
+              \"AWS_DEFAULT_REGION=${AWS_REGION}\",
+              \"MLFLOW_TRACKING_URI=http://mlflow:5000\",
+              \"MLFLOW_ALLOWED_HOSTS=${EC2_PUBLIC_IP}:5000,localhost:5000,mlflow:5000\",
+              \"MLFLOW_CORS_ORIGINS=http://${EC2_PUBLIC_IP}:5000,http://localhost:5000\",
+              \"PREFECT_UI_API_URL=http://${EC2_PUBLIC_IP}:4200/api\",
+              \"EOF\",
+              \"echo 'Deployment environment configured:'\",
+              \"grep -E '^(MLFLOW_BUCKET|AWS_DEFAULT_REGION|MLFLOW_TRACKING_URI|MLFLOW_ALLOWED_HOSTS|MLFLOW_CORS_ORIGINS|PREFECT_UI_API_URL)=' .env\",
               \"echo 'Starting Docker deployment...'\",
               \"docker compose pull\",
               \"docker compose build --pull\",
@@ -154,3 +188,4 @@ jobs:
 
           echo "Deployment timed out while waiting for SSM command."
           exit 1
+```
