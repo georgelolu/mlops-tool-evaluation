@@ -4,10 +4,10 @@ on:
   push:
     branches:
       - main
+  workflow_dispatch:
 
 permissions:
   contents: read
-  id-token: write
 
 env:
   AWS_REGION: us-east-1
@@ -25,17 +25,16 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v5
+        uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: arn:aws:iam::361103952701:role/mlops-tools-evaluation-github-actions-role
           aws-region: ${{ env.AWS_REGION }}
-
-      - name: Verify AWS identity
-        run: |
-          aws sts get-caller-identity
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
 
       - name: Deploy application through SSM
         run: |
+          set -e
+
           COMMAND_ID=$(aws ssm send-command \
             --instance-ids "${EC2_INSTANCE_ID}" \
             --document-name "AWS-RunShellScript" \
@@ -53,11 +52,13 @@ jobs:
               \"echo 'Docker Compose status:'\",
               \"docker compose ps\",
               \"echo 'Waiting for MLflow to become ready...'\",
-              \"curl -fsS --retry 24 --retry-delay 5 --retry-connrefused http://localhost:5000/health >/dev/null || { echo 'MLflow failed to become ready.'; docker compose ps; docker compose logs --tail=100 mlflow; exit 1; }\",
-              \"echo 'MLflow is healthy.'\",
+              \"MLFLOW_READY=false\",
+              \"for i in \\$(seq 1 36); do echo \\\"MLflow readiness attempt \\${i}/36...\\\"; if curl -fsS --connect-timeout 5 --max-time 10 http://localhost:5000/health >/dev/null 2>&1; then MLFLOW_READY=true; echo 'MLflow is healthy.'; break; fi; echo 'MLflow is not ready yet. Waiting 5 seconds...'; sleep 5; done\",
+              \"if [ \\\"\\$MLFLOW_READY\\\" != \\\"true\\\" ]; then echo 'MLflow failed to become ready.'; echo '--- Docker Compose status ---'; docker compose ps; echo '--- MLflow logs ---'; docker compose logs --tail=150 mlflow; echo '--- PostgreSQL logs ---'; docker compose logs --tail=100 postgres; exit 1; fi\",
               \"echo 'Waiting for Prefect to become ready...'\",
-              \"curl -fsS --retry 24 --retry-delay 5 --retry-connrefused http://localhost:4200 >/dev/null || { echo 'Prefect failed to become ready.'; docker compose ps; docker compose logs --tail=100 prefect; exit 1; }\",
-              \"echo 'Prefect is healthy.'\",
+              \"PREFECT_READY=false\",
+              \"for i in \\$(seq 1 36); do echo \\\"Prefect readiness attempt \\${i}/36...\\\"; if curl -fsS --connect-timeout 5 --max-time 10 http://localhost:4200 >/dev/null 2>&1; then PREFECT_READY=true; echo 'Prefect is healthy.'; break; fi; echo 'Prefect is not ready yet. Waiting 5 seconds...'; sleep 5; done\",
+              \"if [ \\\"\\$PREFECT_READY\\\" != \\\"true\\\" ]; then echo 'Prefect failed to become ready.'; echo '--- Docker Compose status ---'; docker compose ps; echo '--- Prefect logs ---'; docker compose logs --tail=150 prefect; exit 1; fi\",
               \"echo 'Final Docker Compose status:'\",
               \"docker compose ps\",
               \"echo 'Deployment completed successfully.'\"
@@ -67,7 +68,7 @@ jobs:
 
           echo "SSM Command ID: ${COMMAND_ID}"
 
-          for i in {1..60}; do
+          for i in $(seq 1 60); do
             STATUS=$(aws ssm get-command-invocation \
               --command-id "${COMMAND_ID}" \
               --instance-id "${EC2_INSTANCE_ID}" \
@@ -79,38 +80,32 @@ jobs:
             case "${STATUS}" in
               Success)
                 echo "Deployment completed successfully."
-
-                aws ssm get-command-invocation \
-                  --command-id "${COMMAND_ID}" \
-                  --instance-id "${EC2_INSTANCE_ID}" \
-                  --query "{Status:Status,StdOut:StandardOutputContent,StdErr:StandardErrorContent}" \
-                  --output json
-
                 exit 0
                 ;;
-
               Failed|Cancelled|TimedOut|Cancelling)
                 echo "Deployment failed with status: ${STATUS}"
 
+                echo "--- SSM stdout ---"
                 aws ssm get-command-invocation \
                   --command-id "${COMMAND_ID}" \
                   --instance-id "${EC2_INSTANCE_ID}" \
-                  --query "{Status:Status,StdOut:StandardOutputContent,StdErr:StandardErrorContent}" \
-                  --output json
+                  --query "StandardOutputContent" \
+                  --output text || true
+
+                echo "--- SSM stderr ---"
+                aws ssm get-command-invocation \
+                  --command-id "${COMMAND_ID}" \
+                  --instance-id "${EC2_INSTANCE_ID}" \
+                  --query "StandardErrorContent" \
+                  --output text || true
 
                 exit 1
                 ;;
+              *)
+                sleep 5
+                ;;
             esac
-
-            sleep 10
           done
 
-          echo "Deployment timed out waiting for SSM."
-
-          aws ssm get-command-invocation \
-            --command-id "${COMMAND_ID}" \
-            --instance-id "${EC2_INSTANCE_ID}" \
-            --query "{Status:Status,StdOut:StandardOutputContent,StdErr:StandardErrorContent}" \
-            --output json
-
+          echo "Deployment timed out while waiting for SSM command."
           exit 1
