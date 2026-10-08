@@ -1,27 +1,27 @@
-```yaml
 name: MLOps CD
 
 on:
   push:
     branches:
       - main
-  workflow_dispatch:
+    paths-ignore:
+      - "README.md"
+      - "docs/**"
 
 permissions:
-  contents: read
   id-token: write
+  contents: read
 
 env:
   AWS_REGION: us-east-1
-  AWS_ROLE_ARN: arn:aws:iam::361103952701:role/mlops-tools-evaluation-github-actions-role
   EC2_INSTANCE_ID: i-0e554922b7d27135d
+  S3_BUCKET: mlops-tools-evaluation-d7e28c26c4424a6727c795bd2
   APP_DIR: /opt/mlops/application
   REPOSITORY_URL: https://github.com/georgelolu/mlops-tool-evaluation.git
-  S3_BUCKET: mlops-tools-evaluation-d7e28c26c4424a6727c795bd2d
 
 jobs:
   deploy:
-    name: Deploy to EC2
+    name: Deploy MLOps Platform
     runs-on: ubuntu-latest
 
     steps:
@@ -31,12 +31,13 @@ jobs:
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
+          role-to-assume: arn:aws:iam::361103952701:role/mlops-tools-evaluation-github-actions-role
           aws-region: ${{ env.AWS_REGION }}
-          role-to-assume: ${{ env.AWS_ROLE_ARN }}
           role-session-name: GitHubActions-MLOpsDeployment
 
       - name: Verify AWS identity
         run: |
+          set -e
           aws sts get-caller-identity
 
       - name: Get current EC2 public IP
@@ -60,94 +61,42 @@ jobs:
 
       - name: Deploy application through SSM
         shell: bash
+        env:
+          EC2_PUBLIC_IP: ${{ steps.ec2_ip.outputs.public_ip }}
         run: |
           set -e
-
-          EC2_PUBLIC_IP="${{ steps.ec2_ip.outputs.public_ip }}"
 
           COMMAND_ID=$(aws ssm send-command \
             --instance-ids "${EC2_INSTANCE_ID}" \
             --document-name "AWS-RunShellScript" \
+            --comment "Deploy MLOps platform from GitHub Actions" \
             --parameters "commands=[
               \"set -e\",
-              \"echo 'Preparing application repository...'\",
-              \"if [ ! -d '${APP_DIR}/.git' ]; then git clone '${REPOSITORY_URL}' '${APP_DIR}'; else cd '${APP_DIR}' && git remote set-url origin '${REPOSITORY_URL}' && git fetch origin main && git reset --hard origin/main; fi\",
-              \"cd '${APP_DIR}'\",
-              \"echo 'Application commit:'\",
-              \"git rev-parse --short HEAD\",
-              \"echo 'Configuring deployment environment...'\",
-              \"cat > .env <<'EOF'\",
+              \"mkdir -p ${APP_DIR}\",
+              \"cd ${APP_DIR}\",
+              \"if [ -d .git ]; then git fetch origin main && git reset --hard origin/main; else git clone ${REPOSITORY_URL} .; fi\",
+              \"cat > .env <<ENVEOF\",
               \"MLFLOW_BUCKET=${S3_BUCKET}\",
               \"AWS_DEFAULT_REGION=${AWS_REGION}\",
               \"MLFLOW_TRACKING_URI=http://mlflow:5000\",
               \"MLFLOW_ALLOWED_HOSTS=${EC2_PUBLIC_IP}:5000,localhost:5000,mlflow:5000\",
               \"MLFLOW_CORS_ORIGINS=http://${EC2_PUBLIC_IP}:5000,http://localhost:5000\",
               \"PREFECT_UI_API_URL=http://${EC2_PUBLIC_IP}:4200/api\",
-              \"EOF\",
-              \"echo 'Deployment environment configured:'\",
-              \"grep -E '^(MLFLOW_BUCKET|AWS_DEFAULT_REGION|MLFLOW_TRACKING_URI|MLFLOW_ALLOWED_HOSTS|MLFLOW_CORS_ORIGINS|PREFECT_UI_API_URL)=' .env\",
-              \"echo 'Starting Docker deployment...'\",
+              \"ENVEOF\",
+              \"echo 'Generated deployment environment:'\",
+              \"cat .env\",
               \"docker compose pull\",
               \"docker compose build --pull\",
-              \"docker compose up -d --remove-orphans\",
-              \"echo 'Docker Compose status:'\",
-              \"docker compose ps\",
-              \"echo 'Waiting for MLflow to become ready...'\",
-              \"MLFLOW_READY=0\",
-              \"i=1\",
-              \"while [ \\$i -le 36 ]; do\",
-              \"  echo \\\"MLflow readiness attempt \\$i/36...\\\"\",
-              \"  if curl -fsS --connect-timeout 5 --max-time 10 http://localhost:5000/health >/dev/null 2>&1; then\",
-              \"    MLFLOW_READY=1\",
-              \"    echo 'MLflow is healthy.'\",
-              \"    break\",
-              \"  fi\",
-              \"  echo 'MLflow is not ready yet. Waiting 5 seconds...'\",
-              \"  sleep 5\",
-              \"  i=\\$((i + 1))\",
-              \"done\",
-              \"if [ \\$MLFLOW_READY -ne 1 ]; then\",
-              \"  echo 'MLflow failed to become ready.'\",
-              \"  echo '--- Docker Compose status ---'\",
-              \"  docker compose ps\",
-              \"  echo '--- MLflow logs ---'\",
-              \"  docker compose logs --tail=150 mlflow\",
-              \"  echo '--- PostgreSQL logs ---'\",
-              \"  docker compose logs --tail=100 postgres\",
-              \"  exit 1\",
-              \"fi\",
-              \"echo 'Waiting for Prefect to become ready...'\",
-              \"PREFECT_READY=0\",
-              \"i=1\",
-              \"while [ \\$i -le 36 ]; do\",
-              \"  echo \\\"Prefect readiness attempt \\$i/36...\\\"\",
-              \"  if curl -fsS --connect-timeout 5 --max-time 10 http://localhost:4200 >/dev/null 2>&1; then\",
-              \"    PREFECT_READY=1\",
-              \"    echo 'Prefect is healthy.'\",
-              \"    break\",
-              \"  fi\",
-              \"  echo 'Prefect is not ready yet. Waiting 5 seconds...'\",
-              \"  sleep 5\",
-              \"  i=\\$((i + 1))\",
-              \"done\",
-              \"if [ \\$PREFECT_READY -ne 1 ]; then\",
-              \"  echo 'Prefect failed to become ready.'\",
-              \"  echo '--- Docker Compose status ---'\",
-              \"  docker compose ps\",
-              \"  echo '--- Prefect logs ---'\",
-              \"  docker compose logs --tail=150 prefect\",
-              \"  exit 1\",
-              \"fi\",
-              \"echo 'Final Docker Compose status:'\",
-              \"docker compose ps\",
-              \"echo 'Deployment completed successfully.'\"
+              \"docker compose up -d --remove-orphans\"
             ]" \
             --query "Command.CommandId" \
             --output text)
 
           echo "SSM Command ID: ${COMMAND_ID}"
 
-          for i in $(seq 1 60); do
+          echo "Waiting for deployment to complete..."
+
+          for i in {1..30}; do
             STATUS=$(aws ssm get-command-invocation \
               --command-id "${COMMAND_ID}" \
               --instance-id "${EC2_INSTANCE_ID}" \
@@ -159,19 +108,19 @@ jobs:
             case "${STATUS}" in
               Success)
                 echo "Deployment completed successfully."
-                exit 0
+                break
                 ;;
               Failed|Cancelled|TimedOut|Cancelling)
                 echo "Deployment failed with status: ${STATUS}"
 
-                echo "--- SSM stdout ---"
+                echo "----- STDOUT -----"
                 aws ssm get-command-invocation \
                   --command-id "${COMMAND_ID}" \
                   --instance-id "${EC2_INSTANCE_ID}" \
                   --query "StandardOutputContent" \
                   --output text || true
 
-                echo "--- SSM stderr ---"
+                echo "----- STDERR -----"
                 aws ssm get-command-invocation \
                   --command-id "${COMMAND_ID}" \
                   --instance-id "${EC2_INSTANCE_ID}" \
@@ -181,11 +130,108 @@ jobs:
                 exit 1
                 ;;
               *)
-                sleep 5
+                sleep 10
                 ;;
             esac
           done
 
-          echo "Deployment timed out while waiting for SSM command."
-          exit 1
-```
+          FINAL_STATUS=$(aws ssm get-command-invocation \
+            --command-id "${COMMAND_ID}" \
+            --instance-id "${EC2_INSTANCE_ID}" \
+            --query "Status" \
+            --output text)
+
+          if [ "${FINAL_STATUS}" != "Success" ]; then
+            echo "ERROR: Deployment did not complete successfully."
+            exit 1
+          fi
+
+      - name: Validate deployed services
+        shell: bash
+        env:
+          EC2_PUBLIC_IP: ${{ steps.ec2_ip.outputs.public_ip }}
+        run: |
+          set -e
+
+          COMMAND_ID=$(aws ssm send-command \
+            --instance-ids "${EC2_INSTANCE_ID}" \
+            --document-name "AWS-RunShellScript" \
+            --comment "Validate MLOps deployment" \
+            --parameters "commands=[
+              \"set -e\",
+              \"cd ${APP_DIR}\",
+              \"echo '===== Docker Compose Status ====='\",
+              \"docker compose ps\",
+              \"echo '===== Generated Environment ====='\",
+              \"cat .env\",
+              \"echo '===== MLflow Health ====='\",
+              \"for i in {1..30}; do if curl -fsS http://localhost:5000/health; then echo; break; fi; echo 'Waiting for MLflow...'; sleep 5; done\",
+              \"echo '===== Prefect Health ====='\",
+              \"for i in {1..30}; do if curl -fsS http://localhost:4200/; then echo; break; fi; echo 'Waiting for Prefect...'; sleep 5; done\",
+              \"echo '===== MLflow Container Command ====='\",
+              \"docker inspect mlflow --format '{{json .Config.Cmd}}'\",
+              \"echo '===== Final Container Status ====='\",
+              \"docker compose ps\"
+            ]" \
+            --query "Command.CommandId" \
+            --output text)
+
+          echo "Validation SSM Command ID: ${COMMAND_ID}"
+
+          for i in {1..40}; do
+            STATUS=$(aws ssm get-command-invocation \
+              --command-id "${COMMAND_ID}" \
+              --instance-id "${EC2_INSTANCE_ID}" \
+              --query "Status" \
+              --output text)
+
+            echo "Validation status: ${STATUS}"
+
+            case "${STATUS}" in
+              Success)
+                echo "Deployment validation completed successfully."
+
+                echo "----- VALIDATION OUTPUT -----"
+                aws ssm get-command-invocation \
+                  --command-id "${COMMAND_ID}" \
+                  --instance-id "${EC2_INSTANCE_ID}" \
+                  --query "StandardOutputContent" \
+                  --output text
+
+                break
+                ;;
+              Failed|Cancelled|TimedOut|Cancelling)
+                echo "Validation failed with status: ${STATUS}"
+
+                echo "----- STDOUT -----"
+                aws ssm get-command-invocation \
+                  --command-id "${COMMAND_ID}" \
+                  --instance-id "${EC2_INSTANCE_ID}" \
+                  --query "StandardOutputContent" \
+                  --output text || true
+
+                echo "----- STDERR -----"
+                aws ssm get-command-invocation \
+                  --command-id "${COMMAND_ID}" \
+                  --instance-id "${EC2_INSTANCE_ID}" \
+                  --query "StandardErrorContent" \
+                  --output text || true
+
+                exit 1
+                ;;
+              *)
+                sleep 10
+                ;;
+            esac
+          done
+
+          FINAL_STATUS=$(aws ssm get-command-invocation \
+            --command-id "${COMMAND_ID}" \
+            --instance-id "${EC2_INSTANCE_ID}" \
+            --query "Status" \
+            --output text)
+
+          if [ "${FINAL_STATUS}" != "Success" ]; then
+            echo "ERROR: Deployment validation did not complete successfully."
+            exit 1
+          fi
