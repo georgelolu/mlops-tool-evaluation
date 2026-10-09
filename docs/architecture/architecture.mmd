@@ -1,0 +1,33 @@
+flowchart TB
+    DEV["Developer"] --> REPO["GitHub Repository"]
+    REPO --> CI["GitHub Actions CI"]
+    CI --> CD["GitHub Actions CD"]
+
+    CD --> OIDC["GitHub OIDC"]
+    OIDC --> IAM["Dedicated AWS IAM Role"]
+    IAM --> SSM["AWS Systems Manager"]
+
+    TF["Terraform"] --> AWS["AWS Infrastructure"]
+    AWS --> EC2["EC2 Instance"]
+    AWS --> S3["Amazon S3 Artifact Bucket"]
+    SSM --> EC2
+
+    subgraph PLATFORM["Docker Compose on EC2"]
+        MLFLOW["MLflow Tracking & Model Registry"]
+        DB["PostgreSQL Metadata Store"]
+        PREFECT["Prefect Orchestration"]
+        TRAINER["Model Training Pipeline"]
+        FEAST["Feast Feature Store Evaluation"]
+        EVIDENTLY["Evidently Monitoring"]
+
+        MLFLOW <--> DB
+        PREFECT --> TRAINER
+        TRAINER --> MLFLOW
+        TRAINER --> FEAST
+        TRAINER --> EVIDENTLY
+    end
+
+    EC2 --> PLATFORM
+    MLFLOW -->|"Model artifacts"| S3
+    FEAST -->|"Local feature data"| EC2
+    EVIDENTLY -->|"HTML/JSON reports"| EC2
